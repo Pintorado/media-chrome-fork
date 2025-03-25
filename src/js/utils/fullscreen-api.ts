@@ -133,33 +133,56 @@ export const isFullscreen = (stateOwners) => {
   // may be nested inside an indeterminite number of web components, traverse each layer
   // until we either find the fullscreen StateOwner or complete the recursive check.
   if (currentFullscreenElement.localName.includes('-')) {
-    let currentRoot = currentFullscreenElement.shadowRoot;
-
-    // NOTE: This is for (non-iOS) Safari < 16.4, which did not support ShadowRoot::fullscreenElement.
-    // We can remove this if/when we decide those versions are old enough/not used enough to handle
-    // (e.g. at the time of writing, < 16.4 ~= 1% of global market, per caniuse https://caniuse.com/mdn-api_shadowroot_fullscreenelement) (CJP)
-
-    // We can simply check if the fullscreenElement key (typically 'fullscreenElement') is defined on the shadowRoot to determine whether or not
-    // it is supported.
-    if (!(fullscreenElementKey in currentRoot)) {
-      // For these cases, if documentElement.fullscreenElement (aka document.fullscreenElement) contains our fullscreenElement StateOwner,
-      // we'll assume that means we're in fullscreen. That should be valid for all current actual and planned supported
-      // web component use cases.
-      return containsComposedNode(
-        currentFullscreenElement,
-        /** @TODO clean up type assumptions (e.g. Node) (CJP) */
-        // @ts-ignore
-        fullscreenElement
-      );
-    }
-
-    while (currentRoot?.[fullscreenElementKey]) {
-      if (currentRoot[fullscreenElementKey] === fullscreenElement) return true;
-      currentRoot = currentRoot[fullscreenElementKey]?.shadowRoot;
-    }
+    return checkShadowFullscreen(currentFullscreenElement, fullscreenElement);
   }
 
   return false;
+};
+
+/**
+ * Checks if an element is in fullscreen mode within a shadow DOM context
+ * @param {FullScreenElementStateOwner} element - The element to check
+ * @param {FullScreenElementStateOwner} fullscreenElement - The element that should be fullscreen
+ * @returns {boolean} - Whether the element is in fullscreen mode
+ */
+const checkShadowFullscreen = (element, fullscreenElement) => {
+  let currentRoot = element.shadowRoot;
+
+  // If there's no shadow root, just check direct equality
+  if (!currentRoot) {
+    return element === fullscreenElement;
+  }
+
+  // NOTE: This is for (non-iOS) Safari < 16.4, which did not support ShadowRoot::fullscreenElement.
+  // We can remove this if/when we decide those versions are old enough/not used enough to handle
+  // (e.g. at the time of writing, < 16.4 ~= 1% of global market, per caniuse https://caniuse.com/mdn-api_shadowroot_fullscreenelement) (CJP)
+  if (!(fullscreenElementKey in currentRoot)) {
+    // For these cases, if documentElement.fullscreenElement (aka document.fullscreenElement) contains our fullscreenElement StateOwner,
+    // we'll assume that means we're in fullscreen. That should be valid for all current actual and planned supported
+    // web component use cases.
+    return containsComposedNode(element, fullscreenElement);
+  }
+
+  // Traverse through shadow roots to find the fullscreen element
+  while (currentRoot) {
+    const shadowFullscreenElement = currentRoot[fullscreenElementKey];
+    
+    // Check direct equality
+    if (shadowFullscreenElement === fullscreenElement) {
+      return true;
+    }
+
+    // Check if the fullscreen element is in the current shadow root's composition tree
+    if (containsComposedNode(shadowFullscreenElement, fullscreenElement)) {
+      return true;
+    }
+
+    // Move to the next shadow root if available
+    currentRoot = shadowFullscreenElement?.shadowRoot;
+  }
+
+  // Final fallback: check if the fullscreen element is in the composition tree
+  return containsComposedNode(element, fullscreenElement);
 };
 
 const fullscreenEnabledKey =
